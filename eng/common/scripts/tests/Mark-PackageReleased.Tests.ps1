@@ -21,58 +21,40 @@ Describe "Mark-PackageReleased.ps1" {
 
     BeforeEach {
         $global:AzSdkExitCode = 0
-        $global:AzSdkOutput = '{"operation_status":"Succeeded","package_name":"azure-test","version":"1.0.0","api_hash":"abc123","api_review_hub":{"succeeded":true,"message":"Package marked released."},"api_view":{"succeeded":true,"message":"Revision marked shipped."}}'
+        $global:AzSdkOutput = '{"operation_status":"Succeeded","api_review_hub":{"packageVersionId":"version123","isReleased":true},"api_view":{"revisionId":"revision456","isReleased":true}}'
         $global:CapturedAzSdkArguments = @()
     }
 
-    It "passes required and optional release inputs to azsdk" {
+    It "passes supported release inputs to azsdk" {
         & $scriptPath `
             -Language python `
             -PackageName azure-test `
             -PackageVersion 1.0.0 `
             -ApiHash abc123 `
-            -SourceFilePath "path/azure test.zip" `
-            -PackageType client `
-            -ReviewTokenFileName azure-test_python.json `
-            -BuildId 123 `
-            -RepoName azure-sdk-for-python `
-            -ArtifactName drop `
-            -Project public `
-            -SourceBranch refs/heads/main
+            -RepoOwner Azure
 
         ($global:CapturedAzSdkArguments -join "|") | Should Be (@(
-            "package", "mark-released",
+            "pkg", "mark-released",
             "--language", "python",
             "--package-name", "azure-test",
             "--package-version", "1.0.0",
             "--api-hash", "abc123",
-            "--source-file-path", "path/azure test.zip",
-            "--package-type", "client",
-            "--artifact-name", "drop",
-            "--project", "public",
             "--output", "json",
-            "--review-token-file-name", "azure-test_python.json",
-            "--build-id", "123",
-            "--repo-name", "azure-sdk-for-python",
-            "--source-branch", "refs/heads/main"
+            "--dry-run",
+            "--repo-owner", "Azure"
         ) -join "|")
     }
 
-    It "omits unavailable optional release inputs" {
+    It "omits optional release inputs" {
         & $scriptPath `
             -Language java `
             -PackageName azure-test `
             -PackageVersion 1.0.0 `
-            -ApiHash abc123 `
-            -SourceFilePath azure-test.jar `
-            -PackageType client
+            -ApiHash abc123
 
         $arguments = $global:CapturedAzSdkArguments -join "|"
-        $arguments | Should Not Match "--review-token-file-name"
-        $arguments | Should Not Match "--build-id"
-        $arguments | Should Not Match "--repo-name"
-        $arguments | Should Not Match "--source-branch"
-        $arguments | Should Match "--artifact-name\|packages\|--project\|internal"
+        $arguments | Should Not Match "--repo-owner"
+        $arguments | Should Match "--dry-run"
     }
 
     It "shows both backend results" {
@@ -80,27 +62,23 @@ Describe "Mark-PackageReleased.ps1" {
             -Language python `
             -PackageName azure-test `
             -PackageVersion 1.0.0 `
-            -ApiHash abc123 `
-            -SourceFilePath azure-test.zip `
-            -PackageType client 6>&1) | ForEach-Object { "$_" }
+            -ApiHash abc123 6>&1) | ForEach-Object { "$_" }
 
         [Array]::IndexOf($messages, "API Review Hub") | Should BeLessThan ([Array]::IndexOf($messages, "APIView"))
-        ($messages -join [Environment]::NewLine) | Should Match "API Review Hub\r?\n  Status: SUCCEEDED"
-        ($messages -join [Environment]::NewLine) | Should Match "APIView\r?\n  Status: SUCCEEDED"
+        ($messages -join [Environment]::NewLine) | Should Match '"packageVersionId":"version123"'
+        ($messages -join [Environment]::NewLine) | Should Match '"revisionId":"revision456"'
     }
 
     It "surfaces partial backend failure details from azsdk" {
         $global:AzSdkExitCode = 1
-        $global:AzSdkOutput = '{"operation_status":"Failed","api_review_hub":{"succeeded":true,"message":"Package marked released."},"api_view":{"succeeded":false,"message":"APIView failed"},"response_errors":["APIView: APIView failed"]}'
+        $global:AzSdkOutput = '{"operation_status":"Failed","api_review_hub":{"packageVersionId":"version123"},"api_view":null,"response_errors":["APIView: APIView failed"]}'
 
         try {
             & $scriptPath `
                 -Language python `
                 -PackageName azure-test `
                 -PackageVersion 1.0.0 `
-                -ApiHash abc123 `
-                -SourceFilePath azure-test.zip `
-                -PackageType client
+                -ApiHash abc123
         }
         catch {
             $_.Exception.Message | Should Match "APIView: APIView failed"
@@ -116,24 +94,20 @@ Describe "Mark-PackageReleased.ps1" {
                 -Language python `
                 -PackageName azure-test `
                 -PackageVersion 1.0.0 `
-                -ApiHash abc123 `
-                -SourceFilePath azure-test.zip `
-                -PackageType client
+                -ApiHash abc123
         }
         catch {
             $_.Exception.Message | Should Match "distinct raw command output"
         }
     }
 
-    It "fails when the response contract omits a backend result" {
-        $global:AzSdkOutput = '{"operation_status":"Succeeded","api_review_hub":{"succeeded":true,"message":"Package marked released."}}'
+    It "accepts a successful response with a missing backend result" {
+        $global:AzSdkOutput = '{"operation_status":"Succeeded","api_review_hub":{"packageVersionId":"version123"},"api_view":null}'
 
         { & $scriptPath `
             -Language python `
             -PackageName azure-test `
             -PackageVersion 1.0.0 `
-            -ApiHash abc123 `
-            -SourceFilePath azure-test.zip `
-            -PackageType client } | Should Throw
+            -ApiHash abc123 } | Should Not Throw
     }
 }

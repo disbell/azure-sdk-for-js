@@ -23,27 +23,7 @@ param (
     [ValidateNotNullOrEmpty()]
     [string] $ApiHash,
 
-    [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string] $SourceFilePath,
-
-    [Parameter(Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string] $PackageType,
-
-    [string] $ReviewTokenFileName = "",
-
-    [string] $BuildId = "",
-
-    [string] $RepoName = "",
-
-    [ValidateNotNullOrEmpty()]
-    [string] $ArtifactName = "packages",
-
-    [ValidateNotNullOrEmpty()]
-    [string] $Project = "internal",
-
-    [string] $SourceBranch = ""
+    [string] $RepoOwner = ""
 )
 
 Set-StrictMode -Version 4
@@ -101,36 +81,23 @@ function Invoke-AzSdkCommand([string[]] $Arguments) {
 }
 
 function Write-BackendResult([string] $Name, [object] $Result) {
-    $status = if ($Result.succeeded) { "SUCCEEDED" } else { "FAILED" }
     Write-Host $Name
-    Write-Host "  Status: $status"
-    Write-Host "  Message: $($Result.message)"
+    Write-Host "  Result: $($Result | ConvertTo-Json -Compress -Depth 20)"
 }
 
 $arguments = @(
-    "package",
+    "pkg",
     "mark-released",
     "--language", $Language,
     "--package-name", $PackageName,
     "--package-version", $PackageVersion,
     "--api-hash", $ApiHash,
-    "--source-file-path", $SourceFilePath,
-    "--package-type", $PackageType,
-    "--artifact-name", $ArtifactName,
-    "--project", $Project,
-    "--output", "json"
+    "--output", "json",
+    "--dry-run"
 )
 
-$optionalArguments = @(
-    @("--review-token-file-name", $ReviewTokenFileName),
-    @("--build-id", $BuildId),
-    @("--repo-name", $RepoName),
-    @("--source-branch", $SourceBranch)
-)
-foreach ($option in $optionalArguments) {
-    if (-not [string]::IsNullOrWhiteSpace($option[1])) {
-        $arguments += $option
-    }
+if (-not [string]::IsNullOrWhiteSpace($RepoOwner)) {
+    $arguments += @("--repo-owner", $RepoOwner)
 }
 
 Write-Host "Marking package released: language=$Language, package=$PackageName, version=$PackageVersion, apiHash=$ApiHash"
@@ -161,17 +128,4 @@ if ($exitCode -ne 0) {
     [array] $errors = if ($response.PSObject.Properties["response_errors"]) { @($response.response_errors) } else { @() }
     $failureMessage = if ($errors.Count -gt 0) { $errors -join "; " } else { "azsdk exited with code $exitCode." }
     throw "Mark released failed: $failureMessage"
-}
-
-if (-not $hasReviewHubResult -or
-    -not $response.api_review_hub.PSObject.Properties["succeeded"] -or
-    $response.api_review_hub.succeeded -isnot [bool] -or
-    -not $hasApiViewResult -or
-    -not $response.api_view.PSObject.Properties["succeeded"] -or
-    $response.api_view.succeeded -isnot [bool]) {
-    throw "Mark released returned an invalid response for $PackageName $PackageVersion."
-}
-
-if (-not $response.api_review_hub.succeeded -or -not $response.api_view.succeeded) {
-    throw "Mark released returned unsuccessful backend results for $PackageName $PackageVersion."
 }
